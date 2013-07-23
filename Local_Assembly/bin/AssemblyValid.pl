@@ -36,6 +36,24 @@ my $bam=readlist($opt{bam});
 my $seq=getfastaseq($opt{fa});
 my $len=getfastalen($opt{fa});
 my $flank=1000;
+
+
+my %type=(
+   "0" => "No SV exists",
+   "1" => "Local Assembly find SV and sequence: Insertion",
+   "2" => "Local Assembly find SV and sequence: Deletion",
+   "3" => "Need Manual verify if SV exists"
+);
+
+my $prefix=basename($opt{gff},".gff");
+$prefix.=".1";
+###creat output gff file
+writefile("","$prefix.Check.gff");
+writefile("","$prefix.NoSV.gff");
+writefile("","$prefix.LocalAssembly.gff");
+writefile("","$prefix.Manual.gff");
+###
+my %summary;
 foreach my $p (sort keys %$sv){
       `mkdir $opt{project}/$p` unless (-e "$opt{project}/$p");
       my $start =$sv->{$p}->[3]-$flank >= 0 ? $sv->{$p}->[3]-$flank : 0;
@@ -71,20 +89,63 @@ foreach my $p (sort keys %$sv){
       ####Alignment
       my $query="$opt{project}/$p/assembly/contigs.fa";
       my $target="$opt{project}/$p/Region.fa";
-      `/opt/exonerate/2.2.0/bin/exonerate --querytype dna --targettype dna --gapextend -3 --query $query --bestn 50 --model affine:local --joinrangeext 300 --score 15 --target $target --gappedextension false --hspfilter 200 --dnahspdropoff 10 --showvulgar TRUE --showcigar TRUE --ryo "%S %pi %ql %C\n" > $opt{project}/$p/alignment.1 2> $opt{project}/$p/alignment.2`;
+      `/opt/exonerate/2.2.0/bin/exonerate --querytype dna --targettype dna --gapextend -3 --query $query --bestn 50 --model affine:local --joinrangeext 300 --score 15 --target $target --gappedextension false --hspfilter 200 --dnahspdropoff 10 --showvulgar TRUE --showcigar TRUE --ryo "%S %pi %ql %C\n" > $opt{project}/$p/alignment.1`;
+      `/rhome/cjinfeng/software/tools/SVcaller/age_v0.4/src/age_align -indel -both $target $query > $opt{project}/$p/alignment.2`;
       }###step3
 
       if ($opt{step}=~/4/){
       ####Parse alignment and output refined SV
-
-
+      print ">$p\n";
+      ###indel=0,1,2: 0 mean non indel/sv, 1 mean insertion, 2 mean deletion, 3 mean not sure if exists a SV.
+      my ($indel,$sequence)=parse_age("$opt{project}/$p/alignment.2","$opt{project}/$p/Region.fa","$opt{project}/$p/assembly/contigs.fa"); ###indel=0,1,2: 0 mean non indel/sv, 1 mean insertion, 2 mean deletion, 3 mean not sure if exists a SV.
+      #my $prefix=basename($opt{gff},".gff");
+      $summary{$indel}++;
+      print "PARSE:\nindel: $indel\nSeq: $sequence\n";
+      open CK, ">>$prefix.Check.gff" or die "$!";
+         $temp=join("\t",@{$sv->{$p}});
+         print CK "$temp\t$indel\t$type{$indel}\n";
+      close CK;
+      open NO, ">>$prefix.NoSV.gff" or die "$!";
+      open LOCAL, ">>$prefix.LocalAssembly.gff" or die "$!";
+      open MANUAL, ">>$prefix.Manual.gff" or die "$!";
+      if ($indel > 0){ ### if indel exists
+         if ($indel == 1){
+            $sv->{$p}->[8].="INDEL=Insertion;Seq=$sequence;";
+            my $line=join("\t",@{$sv->{$p}});
+            print LOCAL "$line\n";
+         }elsif($indel == 2){
+            $sv->{$p}->[8].="INDEL=Deletion;Seq=$sequence;";
+            my $line=join("\t",@{$sv->{$p}});
+            print LOCAL "$line\n";
+         }else{ ### indel =3, need manual check
+            my $line=join("\t",@{$sv->{$p}});
+            print MANUAL "$line\n";
+         }
+      }else{
+         my $line=join("\t",@{$sv->{$p}});
+         print NO "$line\n";
+      }
+      close NO;
+      close LOCAL;
+      close MANUAL;
       }###step4 
 }
-
-
-
+foreach(sort {$a <=> $b} keys %summary){
+      print STDERR "$_\t$summary{$_}\t$type{$_}\n";
+}
+sortfile("$prefix.NoSV.gff");
+sortfile("$prefix.LocalAssembly.gff");
+sortfile("$prefix.Manual.gff");
+sortfile("$prefix.Check.gff");
 
 ##############################
+sub sortfile
+{
+my ($file)=@_;
+`sort -k1,1 -k4,4n $file > temp.sort`;
+`mv temp.sort $file`;
+}
+
 sub readtable
 {
 my ($file)=@_;
@@ -190,5 +251,133 @@ while (<IN>){
 close IN;
 $/="\n";
 return \%hash;
+}
+
+###
+#Alignment:
+# first  seq =>  [  2,  9] EXCISED REGION [ 10,173]
+# second seq =>  [174,168] EXCISED REGION [165,  2]
+sub parse_age0
+{
+my ($align,$target,$query)=@_;
+
+my $indel=3;
+my $sequence="NA";
+
+my $refseq=getfastaseq($query);
+$/="\n\n\n";
+open IN, "$align" or die "$!";
+while(<IN>){
+   my $block=$_;
+   while($block=~/(MATCH.*Alignment time is .*? s)/sg){  ### match every alignment block for each contig
+      #print "MATCH\n$1\nEND\n";
+      my $match=$1;
+      my $contig;
+      if ($match=~/Second seq .* nucs \'(.*)\'\n/){  ### match contig name
+         $contig=$1;
+         print "$contig\n";
+      }
+      ### no excise
+      if ($match=~/Alignment:\n first\s+seq =>\s+\[\s*(\d+)\,\s*(\d+)\]\n\s+second seq \=\> \s+\[\s*(\d+)\,\s*(\d+)\]\n/){
+         print "$1\t$2\t$3\t$4\n";
+         if ($1 < 1000-100 and $2 > 1000+100){ ### perfect alignment cover 200 bp of breakpoint
+            $indel=0 unless ($indel == 1); ### indicate no SV exists
+         }
+      ### excise
+      }elsif($match=~/Alignment:\n first\s+seq =>\s+\[\s*(\d+)\,\s*(\d+)\] EXCISED REGION \[\s*(\d+)\,\s*(\d+)\]\n\s+second seq \=\> \s+\[\s*(\d+)\,\s*(\d+)\] EXCISED REGION \[\s*(\d+)\,\s*(\d+)\]\n/){
+         print "$1\t$2\t$3\t$4\t$5\t$6\t$7\t$8\n";
+         if ($1 < 1000-100 and $4 > 1000+100){ ### excised alignment cover 200 bp of breakpoint
+            if ($2 <= 1000+100 and $2 >= 1000-100 and $3 <= 1000+100 and $3 >= 1000-100){ ### excise region cover 100 bp of breakpoint
+               print "SV Contig $contig: $6,$7\n";
+               $indel=1; ### indicate SV exists
+               my $seqlen=length $refseq->{$contig};
+               my $start=$6 < $7 ? $6 : $7;
+               my $len  =abs($7-$6+1);
+               $sequence=substr($refseq->{$contig},$start,$len);
+               my $gap;
+               while($sequence=~/(N+)/g){
+                  $gap+=length $1;
+               }
+               if ($gap > $len*0.3){
+                  $indel=3 unless ($indel == 1 or $indel == 0); ### too much unknown sequence in SV sequence, set to not sure
+               }
+               if ($len < 10){
+                  $indel=0 unless ($indel == 1); ### insertion sequence too small, probably not a SV
+               }
+            }elsif(($1 <= 1000-100 and $2 >= 1000+100) or ($3 <= 1000-100 and $4 >= 1000+100)){
+               $indel=0 unless ($indel == 1); ### indicate no SV exists
+            }else{
+               $indel=3 unless ($indel == 1 or $indel == 0); ### indicate not sure
+            }
+         }
+      }
+   }
+}
+close IN;
+$/="\n";
+return ($indel,$sequence);
+}
+
+
+sub parse_age
+{
+my ($align,$target,$query)=@_;
+
+my $indel=3;
+my $sequence="NA";
+
+my $refseq=getfastaseq($query);
+$/="\n\n\n";
+open IN, "$align" or die "$!";
+while(<IN>){
+   my $block=$_;
+   while($block=~/(MATCH.*Alignment time is .*? s)/sg){  ### match every alignment block for each contig
+      #print "MATCH\n$1\nEND\n";
+      my $match=$1;
+      my $contig;
+      if ($match=~/Second seq .* nucs \'(.*)\'\n/){  ### match contig name
+         $contig=$1;
+         print "$contig\n";
+      }
+      ### no excise
+      if ($match=~/Alignment:\n first\s+seq =>\s+\[\s*(\d+)\,\s*(\d+)\]\n\s+second seq \=\> \s+\[\s*(\d+)\,\s*(\d+)\]\n/){
+         print "$1\t$2\t$3\t$4\n";
+         if ($1 < 1000-100 and $2 > 1000+100){ ### perfect alignment cover 200 bp of breakpoint
+            $indel=0 unless ($indel == 1); ### indicate no SV exists
+         }
+      ### excise
+      }elsif($match=~/Alignment:\n first\s+seq =>\s+\[\s*(\d+)\,\s*(\d+)\] EXCISED REGION \[\s*(\d+)\,\s*(\d+)\]\n\s+second seq \=\> \s+\[\s*(\d+)\,\s*(\d+)\] EXCISED REGION \[\s*(\d+)\,\s*(\d+)\]\n/){
+         print "$1\t$2\t$3\t$4\t$5\t$6\t$7\t$8\n";
+         if ($1 < 1000-100 and $4 > 1000+100){ ### excised alignment cover 200 bp of breakpoint
+            if ($2 <= 1000+100 and $2 >= 1000-100 and $3 <= 1000+100 and $3 >= 1000-100){ ### excise region cover 100 bp of breakpoint
+               print "SV Contig $contig: $6,$7\n";
+               #$indel=1; ### indicate SV exists
+               my $seqlen=length $refseq->{$contig};
+               my $start=$6 < $7 ? $6 : $7;
+               my $len  =abs($7-$6+1);
+               $sequence=substr($refseq->{$contig},$start,$len);
+               my $gap;
+               while($sequence=~/(N+)/g){
+                  $gap+=length $1;
+               }
+               if ($gap > $len*0.3){
+                  $indel=3 unless ($indel == 1 or $indel == 0); ### too much unknown sequence in SV sequence, set to not sure
+               }elsif ($len < 10){
+                  $indel=0 unless ($indel == 1); ### insertion sequence too small, probably not a SV
+               }else{
+                  $indel=1;
+               }
+            }elsif(($1 <= 1000-100 and $2 >= 1000+100) or ($3 <= 1000-100 and $4 >= 1000+100)){
+               $indel=0 unless ($indel == 1); ### indicate no SV exists
+            }else{
+               $indel=3 unless ($indel == 1 or $indel == 0); ### indicate not sure
+            }
+         }
+      }
+   }
+}
+close IN;
+$/="\n";
+return ($indel,$sequence);
 }
 

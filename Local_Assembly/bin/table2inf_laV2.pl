@@ -59,7 +59,9 @@ while(<IN1>){
        close OUT;
        `/usr/bin/blastall -p blastn -U -i $opt{project}.query.fa -d $heg4 -o HEG4.blast -e 1e-5 -m 8`;
        my $heg4inf=target("HEG4.blast","HEG4");
-       if ($heg4inf eq "NA"){
+=pod
+       if ($heg4inf->[0] eq "NA"){
+          print "\nUse 20 kbp flanking\n";
           $seq1=substr($refseq->{$unit[0]},$unit[1]-20000,20000);
           $seq2=substr($refseq->{$unit[0]},$unit[2],20000);
           open OUT, ">$opt{project}.query.fa" or die "$!";
@@ -68,13 +70,16 @@ while(<IN1>){
           `/usr/bin/blastall -p blastn -U -i $opt{project}.query.fa -d $heg4 -o HEG4.blast -e 1e-5 -m 8`;
           $heg4inf=target("HEG4.blast","HEG4");
        }
-       if($heg4inf ne "NA"){ ###find target region, then refine to small region
+=cut
+       if($heg4inf->[0] ne "NA"){ ###find target region, then refine to small region
+          print "\nUse 2 kb flanking with same target\n";
           $seq1=substr($refseq->{$unit[0]},$unit[1]-2000,2000);
           $seq2=substr($refseq->{$unit[0]},$unit[2],2000);
           open OUT, ">$opt{project}.query.fa" or die "$!";
                print OUT ">$h1\n$seq1\n>$h2\n$seq2\n";
           close OUT;
-          my @inf=split("\t",$heg4inf);
+          my @inf=@{$heg4inf};
+          print "CK: $inf[0]\t$inf[1]\t$inf[2]\t$inf[3]\n";
           my $region=substr($refheg4->{$inf[1]},$inf[2],$inf[3]-$inf[2]+1);
           open OUT, ">$opt{project}.region.fa" or die "$!";
                print OUT ">$inf[1]:$inf[2]-$inf[3]\n$region\n";
@@ -82,19 +87,35 @@ while(<IN1>){
           `/usr/bin/formatdb -i $opt{project}.region.fa -p F`;
           `/usr/bin/blastall -p blastn -U -i $opt{project}.query.fa -d $opt{project}.region.fa -o HEG4.blast -e 1e-5 -m 8`;
           $heg4inf=target("HEG4.blast","HEG4");
-          if ($heg4inf ne "NA"){ ### find smaller region
-             my @new=split("\t",$heg4inf);
+          if ($heg4inf->[0] ne "NA"){ ### find smaller region
+             my @new=@{$heg4inf};
              my ($scaffold,$start,$end);
              if ($new[1]=~/(\w+)\:(\w+)\-(\w+)/){
                 $scaffold=$1;
                 $start   =$2+$new[2];
                 $end     =$2+$new[3];
              } 
-             $heg4inf="$new[0]\t$scaffold\t$start\t$end";
+             $heg4inf=[$new[0],$scaffold,$start,$end];
           }
+       }else{
+          print "\nUse 2 kb flanking with difference target\n";
+          $seq1=substr($refseq->{$unit[0]},$unit[1]-2000,2000);
+          $seq2=substr($refseq->{$unit[0]},$unit[2],2000);
+          open OUT, ">$opt{project}.query.fa" or die "$!";
+               print OUT ">$h1\n$seq1\n>$h2\n$seq2\n";
+          close OUT;
+          my @inf=@{$heg4inf};
+          open OUT, ">$opt{project}.region.fa" or die "$!";
+               print OUT ">$inf[1]\n$refheg4->{$inf[1]}\n";
+               print OUT ">$inf[2]\n$refheg4->{$inf[2]}\n";
+          close OUT; 
+          `/usr/bin/formatdb -i $opt{project}.region.fa -p F`;
+          `/usr/bin/blastall -p blastn -U -i $opt{project}.query.fa -d $opt{project}.region.fa -o HEG4.blast -e 1e-5 -m 8`;
+          $heg4inf=target("HEG4.blast","HEG4");
        }
+       my $heg4inf0=join("\t",@{$heg4inf});
        print INF "OS\t$unit[0]\t$unit[1]\t$unit[2]";
-       print INF "\t$heg4inf" if ($heg4inf ne "NA");
+       print INF "\t$heg4inf0" if ($heg4inf->[0] ne "NA");
        print INF "\n";
        `rm $opt{project}.query.fa $opt{project}.region.fa* HEG4.blast`;
     }
@@ -129,13 +150,13 @@ while(<IN>){
 }
 close IN;
    print "start and end chromosome: $hash{\"upstream\"}->[0]\t$hash{\"downstream\"}->[0]\n";
-if ($hash{"upstream"}->[0] eq $hash{"downstream"}->[0]){
+if ($hash{"upstream"}->[0] eq $hash{"downstream"}->[0] and $hash{"upstream"}->[0] ne ""){
    my @temp=sort {$a <=> $b} ($hash{"upstream"}->[1],$hash{"upstream"}->[2],$hash{"downstream"}->[1],$hash{"downstream"}->[2]);
-   $target="$title\t$hash{\"upstream\"}->[0]\t$temp[0]\t$temp[3]"; ## OS	Chr1	start	end
+   $target=[$title,$hash{"upstream"}->[0],$temp[0],$temp[3]]; ## OS	Chr1	start	end
 }else{
    print "Hit on different chromosome: $hash{\"upstream\"}->[0]\t$hash{\"upstream\"}->[1]\t$hash{\"upstream\"}->[2]\t$hash{\"downstream\"}->[0]\t$hash{\"downstream\"}->[1]\t$hash{\"downstream\"}->[2]\n";
    
-   $target="NA";
+   $target=["NA",$hash{"upstream"}->[0],$hash{"downstream"}->[0]];
 }
 return $target;
 }

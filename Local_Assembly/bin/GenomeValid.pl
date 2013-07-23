@@ -54,8 +54,8 @@ $prefix.=".0";
 
 ###generate target inf from genome assembly
 `cut -f1,4,5 $opt{gff} > $prefix.table` unless (-e "$prefix.table");
-`perl table2inf_la.pl --table $prefix.table` unless (-e "$prefix.inf");
-`grep "HEG4" $prefix.inf > $prefix.draw.inf`;
+`perl table2inf_laV2.pl --table $prefix.table` unless (-e "$prefix.inf");
+`grep "HEG4" $prefix.inf | awk '{len=\$8-\$7;if(len < 20000){print}}' > $prefix.draw.inf`;
 my $targetinf=readinf("$prefix.draw.inf");
 
 ###creat output gff file

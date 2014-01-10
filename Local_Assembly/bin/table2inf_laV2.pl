@@ -23,8 +23,7 @@ if ($opt{help} or keys %opt < 1){
 
 my $os="/rhome/cjinfeng/HEG4_cjinfeng/Variations/SV2ACT/input/MSU_r7.fa.RepeatMasker.masked";
 my $osgff="/rhome/cjinfeng/HEG4_cjinfeng/Variations/SV2ACT/input/MSU7.collinear.gene.gff";
-my $heg4="/rhome/cjinfeng/BigData/01.Rice_genomes/HEG4/00.Assembly/HEG4_ALLPATHLG_v1/HEG4.allpathlg.GC.v1.noIUPAC.fasta.RepeatMasker.masked";
-
+my $heg4="/rhome/cjinfeng/HEG4_cjinfeng/Variations/SV2ACT/input/HEG4_RAW.refassist.fa.RepeatMasker.masked";
 
 $opt{project} ||= "insertion.0";
 

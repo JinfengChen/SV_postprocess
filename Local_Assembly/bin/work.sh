@@ -9,8 +9,7 @@ echo "Valid using local assembly,insertion.1"
 perl AssemblyValid.pl --step 1234 > log 2> log2 &
 
 echo "Valid using genome, insertion.0"
-awk '{print $1"\t"$4"\t"$5}' HEG4.insertion.other.gff > insertion.0.table
-perl table2inf_laV2.pl --table insertion.0.table > log 2> log2 &
+ln -s HEG4.insertion.other.gff insertion.gff
 perl GenomeValid.pl --step 1234 > log 2> log2 &
 
 echo "After Valid using genome, valid these need manuals using local assembly"

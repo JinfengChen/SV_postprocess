@@ -10,7 +10,7 @@ GetOptions (\%opt,"list:s","project:s","help");
 my $help=<<USAGE;
 perl $0 --list --project
 --list: list file contains GFF files of Insertion/Deletion/Inversion
-Need to run protein_to_genome.pl first to map rice gene to SV sequence. The resulting file name as HEG4.Deletion.final.fa.genewise.gff.
+Switch if to 0 first and Need to run protein_to_genome.pl first to map rice gene to SV sequence. The resulting file name as HEG4.Deletion.final.fa.genewise.gff.
 USAGE
 
 
@@ -48,9 +48,11 @@ while(<IN>){
      createfasta($unit[0],"$output/$prefix.fa") unless (-e "$output/$prefix.fa");
      repeatanno("$output/$prefix.fa") unless (-e "$output/$prefix.fa.out");
      #geneanno("$output/$prefix.fa");
-     sumrepeat("$output/$prefix.fa.out",\%data,\%repeat);
-     sumgene("$output/$prefix.fa.genewise.gff",\%data,$cdslen,$cdsanno,\%gene);
-     sumALL(\%repeat,\%gene,\%data,"$output/$prefix.annotation");
+     if (1){
+         sumrepeat("$output/$prefix.fa.out",\%data,\%repeat);
+         sumgene("$output/$prefix.fa.genewise.gff",\%data,$cdslen,$cdsanno,\%gene);
+         sumALL(\%repeat,\%gene,\%data,"$output/$prefix.annotation");
+     }
 }
 close IN;
 
